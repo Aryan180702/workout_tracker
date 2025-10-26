@@ -34,7 +34,7 @@ def _pretty(s: str) -> str:
 def load_config():
     """Load authentication config from YAML file"""
     try:
-        with open('config.yaml') as file:
+        with open('workout_tracker/config.yaml') as file:
             config = yaml.load(file, Loader=SafeLoader)
         if not isinstance(config, dict):
             raise ValueError("Parsed config.yaml is not a dict")
