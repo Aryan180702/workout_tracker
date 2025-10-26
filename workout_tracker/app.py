@@ -34,7 +34,7 @@ def _pretty(s: str) -> str:
 def load_config():
     """Load authentication config from YAML file"""
     try:
-        with open('workout_tracker/config.yaml') as file:
+        with open('config.yaml') as file:
             config = yaml.load(file, Loader=SafeLoader)
         if not isinstance(config, dict):
             raise ValueError("Parsed config.yaml is not a dict")
@@ -178,8 +178,7 @@ with tab1:
 
                 # Fetch routine exercises
                 exercises = db.get_routine_exercises(selected_routine['id'])
-                # Map for quick lookups
-                existing_keys = { _norm_name(e['exercise_name']) for e in (exercises or []) }
+                existing_keys = {_norm_name(e['exercise_name']) for e in (exercises or [])}
 
                 # ===== ADD NEW EXERCISE TO ROUTINE =====
                 with st.expander("➕ Add Exercise to This Routine", expanded=not bool(exercises)):
@@ -194,7 +193,6 @@ with tab1:
 
                     if submit_ex and exercise_name_in:
                         exercise_key = _norm_name(exercise_name_in)
-
                         if exercise_key in existing_keys:
                             st.warning(f"⚠️ '{_pretty(exercise_key)}' already exists in this routine. Not adding a duplicate.")
                         else:
@@ -224,13 +222,18 @@ with tab1:
                         default_reps = 10
                         default_weight = 0.0
 
+                        # Allow zero sets; if zero, skip this exercise entirely
                         actual_sets = st.number_input(
                             "Number of Sets Completed",
-                            min_value=1,
+                            min_value=0,                         # ← allow zero
                             max_value=10,
-                            value=int(ex['sets']) if isinstance(ex['sets'], int) else 1,
+                            value=int(ex['sets']) if isinstance(ex['sets'], int) else 0,
                             key=f"num_sets_{selected_routine['id']}_{ex['exercise_name'].replace(' ', '_')}_idx_{idx}"
                         )
+                        if actual_sets < 1:
+                            st.caption("No sets logged for this exercise.")
+                            st.divider()
+                            continue  # SKIP everything below for this exercise
 
                         set_details = []
                         for set_num in range(1, actual_sets + 1):
@@ -271,13 +274,19 @@ with tab1:
 
                         st.divider()
 
+                    # ===== LOG ALL BUTTON =====
                     if st.button("💾 Log This Workout", type="primary", use_container_width=True):
                         total_sets_logged = 0
+                        real_ex_count = 0
                         for _, details in all_set_details.items():
+                            # Only try to log if there are actual sets!
+                            if not details['sets']:
+                                continue
+                            real_ex_count += 1
                             for set_data in details['sets']:
                                 ok = db.add_workout(
                                     user_id=st.session_state['username'],
-                                    exercise_name=details['exercise_name'],   # already normalized
+                                    exercise_name=details['exercise_name'],
                                     target_muscle=details['target_muscle'],
                                     sets=1,
                                     reps=set_data['reps'],
@@ -285,11 +294,11 @@ with tab1:
                                     notes=details['notes'],
                                     effort_level=set_data['effort'],
                                     routine_id=details['routine_id'],
-                                    routine_exercise_id=details['routine_exercise_id']
+                                    routine_exercise_id=details.get('routine_exercise_id')  # safe get
                                 )
                                 if ok:
                                     total_sets_logged += 1
-                        st.success(f"✅ Logged {total_sets_logged} sets from {len(all_set_details)} exercises!")
+                        st.success(f"✅ Logged {total_sets_logged} sets from {real_ex_count} exercises!")
                         st.balloons()
                         st.rerun()
                 else:
@@ -463,5 +472,5 @@ with tab3:
     - One routine per day
     - Exercises are stored case-insensitively (lower-case) and displayed in Title Case
     - Per-set logging with effort levels
-    - Secure login
+    - If you set **Number of Sets Completed = 0**, nothing will be logged for that exercise
     """)
