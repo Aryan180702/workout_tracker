@@ -209,60 +209,74 @@ with tab1:
                                 st.error("❌ Failed to add exercise.")
 
                 # ===== LOG TODAY'S WORKOUT =====
+                # ===== LOG TODAY'S WORKOUT =====
                 if exercises:
                     st.divider()
                     st.subheader("Step 2: Log Today's Workout")
-
+                
+                    # helper to build stable keys
+                    def wkey(*parts):
+                        return "wk_" + "_".join(map(lambda x: str(x).replace(" ", "_"), parts))
+                
                     all_set_details = {}
-
+                
                     for idx, ex in enumerate(exercises):
                         disp_name = _pretty(ex['exercise_name'])
                         st.markdown(f"### {disp_name} ({ex['target_muscle']})")
                         st.caption(f"Target: {ex['sets']} sets")
-                        default_reps = 10
-                        default_weight = 0.0
-
+                
                         # Allow zero sets; if zero, skip this exercise entirely
                         actual_sets = st.number_input(
                             "Number of Sets Completed",
-                            min_value=0,                         # ← allow zero
+                            min_value=0,
                             max_value=10,
                             value=int(ex['sets']) if isinstance(ex['sets'], int) else 0,
-                            key=f"num_sets_{selected_routine['id']}_{ex['exercise_name'].replace(' ', '_')}_idx_{idx}"
+                            key=wkey("numsets", st.session_state['username'], selected_routine['id'], ex['id'])
                         )
                         if actual_sets < 1:
                             st.caption("No sets logged for this exercise.")
                             st.divider()
-                            continue  # SKIP everything below for this exercise
-
+                            continue
+                
                         set_details = []
                         for set_num in range(1, actual_sets + 1):
                             st.markdown(f"**Set {set_num}:**")
                             col1, col2, col3 = st.columns(3)
+                
                             with col1:
                                 reps = st.number_input(
-                                    "Reps", min_value=1, max_value=100, value=default_reps,
-                                    key=f"reps_{selected_routine['id']}_{ex['exercise_name'].replace(' ', '_')}_set_{set_num}_uid_{idx}_{set_num}_{datetime.now().timestamp()}"
+                                    "Reps",
+                                    min_value=0,    # allow 0 so untouched sets remain empty
+                                    max_value=100,
+                                    value=0,
+                                    key=wkey("reps", st.session_state['username'], selected_routine['id'], ex['id'], set_num)
                                 )
                             with col2:
                                 weight = st.number_input(
-                                    "Weight (kg)", min_value=0.0, max_value=500.0, value=default_weight, step=2.5,
-                                    key=f"weight_{selected_routine['id']}_{ex['exercise_name'].replace(' ', '_')}_set_{set_num}_uid_{idx}_{set_num}_{datetime.now().timestamp()}"
+                                    "Weight (kg)",
+                                    min_value=0.0,
+                                    max_value=500.0,
+                                    value=0.0,
+                                    step=2.5,
+                                    key=wkey("weight", st.session_state['username'], selected_routine['id'], ex['id'], set_num)
                                 )
                             with col3:
                                 effort = st.selectbox(
-                                    "Effort Level", ["Easy", "Medium", "Hard"], index=1,
-                                    key=f"effort_{selected_routine['id']}_{ex['exercise_name'].replace(' ', '_')}_set_{set_num}_idx_{idx}"
+                                    "Effort Level",
+                                    ["Easy", "Medium", "Hard"],
+                                    index=1,
+                                    key=wkey("effort", st.session_state['username'], selected_routine['id'], ex['id'], set_num)
                                 )
+                
                             set_details.append({"reps": reps, "weight": weight, "effort": effort})
-
+                
                         notes = st.text_area(
                             "Notes (optional)",
                             placeholder="How did it feel? Any observations?",
-                            key=f"notes_{selected_routine['id']}_{ex['exercise_name'].replace(' ', '_')}_idx_{idx}",
+                            key=wkey("notes", st.session_state['username'], selected_routine['id'], ex['id']),
                             height=60
                         )
-
+                
                         all_set_details[ex['id']] = {
                             "exercise_name": ex['exercise_name'],  # stored lower-case
                             "target_muscle": ex['target_muscle'],
@@ -271,19 +285,32 @@ with tab1:
                             "routine_id": selected_routine['id'],
                             "routine_exercise_id": ex['id'],
                         }
-
+                
                         st.divider()
-
+                
                     # ===== LOG ALL BUTTON =====
                     if st.button("💾 Log This Workout", type="primary", use_container_width=True):
                         total_sets_logged = 0
                         real_ex_count = 0
                         for _, details in all_set_details.items():
-                            # Only try to log if there are actual sets!
                             if not details['sets']:
                                 continue
-                            real_ex_count += 1
+                
+                            # skip sets left at defaults (reps<=0 & weight<=0 & no notes)
+                            cleaned_sets = []
                             for set_data in details['sets']:
+                                reps_val = set_data.get('reps') or 0
+                                weight_val = set_data.get('weight') or 0.0
+                                notes_val = (details.get('notes') or "").strip()
+                                if reps_val <= 0 and weight_val <= 0 and not notes_val:
+                                    continue
+                                cleaned_sets.append(set_data)
+                
+                            if not cleaned_sets:
+                                continue
+                
+                            real_ex_count += 1
+                            for set_data in cleaned_sets:
                                 ok = db.add_workout(
                                     user_id=st.session_state['username'],
                                     exercise_name=details['exercise_name'],
@@ -294,15 +321,14 @@ with tab1:
                                     notes=details['notes'],
                                     effort_level=set_data['effort'],
                                     routine_id=details['routine_id'],
-                                    routine_exercise_id=details.get('routine_exercise_id')  # safe get
+                                    routine_exercise_id=details.get('routine_exercise_id')
                                 )
                                 if ok:
                                     total_sets_logged += 1
+                
                         st.success(f"✅ Logged {total_sets_logged} sets from {real_ex_count} exercises!")
                         st.balloons()
                         st.rerun()
-                else:
-                    st.info("👆 Add exercises to this routine first!")
 
         # ===== PAGE 2: VIEW HISTORY =====
         elif page == "View History":
