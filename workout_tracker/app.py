@@ -206,16 +206,18 @@ with tab1:
                     for idx, ex in enumerate(exercises):
                         st.markdown(f"### {ex['exercise_name']} ({ex['target_muscle']})")
                         st.caption(f"Target: {ex['sets']} sets")
-                        default_reps = 10
+                        default_reps = 5
                         default_weight = 0.0
 
                         actual_sets = st.number_input(
                             "Number of Sets Completed",
-                            min_value=1,
+                            min_value=0,
                             max_value=10,
-                            value=int(ex['sets']) if isinstance(ex['sets'], int) else 1,
+                            value=int(ex['sets']) if isinstance(ex['sets'], int) else 0,
                             key=f"num_sets_{selected_routine['id']}_{ex['exercise_name'].replace(' ', '_')}_idx_{idx}"
                         )
+                        if actual_sets<1:
+                            continue
 
                         set_details = []
                         for set_num in range(1, actual_sets + 1):
