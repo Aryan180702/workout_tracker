@@ -25,8 +25,10 @@ st.set_page_config(
 def load_config():
     """Load authentication config from YAML file"""
     try:
-        with open('config.yaml') as file:
+        with open('workout_tracker/config.yaml') as file:
             config = yaml.load(file, Loader=SafeLoader)
+        if not isinstance(config, dict):
+            raise ValueError("Parsed config.yaml is not a dict")
         return config
     except FileNotFoundError:
         st.error("❌ config.yaml not found! Please create it first.")
@@ -38,7 +40,8 @@ def load_config():
 def save_config(config):
     """Save updated config back to YAML file"""
     try:
-        with open('workout_tracker/config.yaml', 'w') as file:
+        # CHANGED: save to the same path we load from
+        with open('config.yaml', 'w') as file:
             yaml.dump(config, file)
     except Exception as e:
         st.error(f"❌ Error saving config: {e}")
@@ -190,21 +193,17 @@ with tab1:
                         submit_ex = st.form_submit_button("Add Exercise to Routine", type="primary", use_container_width=True)
                     
                     if submit_ex and exercise_name:
+                        # CHANGED: Do NOT pass workout fields here (no reps/weight/notes/effort)
                         success = db.add_routine_exercise(
                             routine_id=selected_routine['id'],
                             exercise_name=exercise_name,
                             target_muscle=target_muscle,
-                            sets=num_sets,
-                            reps=None,
-                            weight=None,
-                            notes="",
-                            effort_level="Medium"
+                            sets=num_sets
                         )
                         if success:
                             st.success(f"✅ Added {exercise_name}!")
                             st.rerun()
                 
-                # ===== LOG TODAY'S WORKOUT =====
                 # ===== LOG TODAY'S WORKOUT =====
                 if exercises:
                     st.divider()
@@ -233,7 +232,6 @@ with tab1:
                             col1, col2, col3 = st.columns(3)
                             
                             with col1:
-
                                 reps = st.number_input(
                                     "Reps",
                                     min_value=1,
@@ -309,115 +307,169 @@ with tab1:
                 else:
                     st.info("👆 Add exercises to this routine first!")
 
-        
-        # ===== PAGE 2: VIEW HISTORY (GROUPED BY ROUTINE/DATE/EXERCISE) =====
-# ===== PAGE 2: VIEW HISTORY (WITH DELETE BUTTON) =====
+        # ===== PAGE 2: VIEW HISTORY =====
         elif page == "View History":
             st.header("📊 Workout History")
-            
-            # Fetch all workouts
-            all_workouts = db.get_user_workouts(st.session_state['username'], limit=1000)
-            
-            if not all_workouts:
+
+            # Fetch all workouts (raw)
+            all_workouts_raw = db.get_user_workouts(st.session_state['username'], limit=1000)
+
+            if not all_workouts_raw:
                 st.info("📌 No workouts logged yet!")
             else:
-                # Get routines for grouping
-                routines = db.get_user_routines(st.session_state['username'])
-                routine_map = {r['id']: r for r in routines}
-                
-                # Group: Routine → Date → Exercise → Sets
-                grouped = defaultdict(lambda: defaultdict(lambda: defaultdict(list)))
-                
-                for w in all_workouts:
-                    routine_id = w.get('routine_id')
-                    date_str = str(w['date'])[:10]  # YYYY-MM-DD
-                    exercise_name = w['exercise_name']
-                    
-                    if routine_id:
-                        grouped[routine_id][date_str][exercise_name].append(w)
-                
-                # ===== DISPLAY GROUPED VIEW =====
-                if grouped:
-                    for routine_id, date_dict in grouped.items():
-                        routine = routine_map.get(routine_id, {})
-                        routine_header = f"🏋️ {routine.get('routine_name', 'Unknown')} ({routine.get('day_name', '?')})"
-                        
-                        with st.expander(routine_header, expanded=True):
-                            # Sort dates descending (newest first)
-                            for workout_date in sorted(date_dict.keys(), reverse=True):
-                                exercise_dict = date_dict[workout_date]
-                                
-                                with st.expander(f"📅 {workout_date}"):
-                                    # Show each exercise on this date
-                                    for exercise_name, sets in exercise_dict.items():
-                                        st.markdown(f"**{exercise_name}**")
-                                        
-                                        for idx, s in enumerate(sets, 1):
-                                            # Create columns with delete button
-                                            col1, col2, col3, col4, col5, col6 = st.columns([1.5, 1, 1.2, 1, 1.5, 0.8])
-                                            
-                                            with col1:
-                                                st.write(f"Set {idx}")
-                                            with col2:
-                                                st.write(f"Reps: {s['reps']}")
-                                            with col3:
-                                                st.write(f"Weight: {s['weight']} kg" if s['weight'] else "No weight")
-                                            with col4:
-                                                st.write(f"Effort: {s.get('effort_level', 'N/A')}")
-                                            with col5:
-                                                st.write(f"Notes: {s['notes'][:20] + '...' if s['notes'] and len(s['notes']) > 20 else s['notes'] or '-'}")
-                                            with col6:
-                                                # Delete button for each set
-                                                if st.button(
-                                                    "🗑️",
-                                                    key=f"delete_{s['id']}",
-                                                    help="Delete this set"
-                                                ):
-                                                    if db.delete_workout(s['id']):
-                                                        st.success("✅ Set deleted!")
-                                                        st.rerun()
-                                                    else:
-                                                        st.error("❌ Failed to delete set")
-                                        
-                                        st.divider()
-                else:
-                    st.info("📌 No grouped data available")
+                # CHANGED: Filter to show only REAL logged sets
+                # Prefer 'kind' discriminator if present; else fall back to reps != None
+                filtered = []
+                for w in all_workouts_raw:
+                    if w is None:
+                        continue
+                    if 'kind' in w:
+                        if w.get('kind') == 'set':
+                            filtered.append(w)
+                    else:
+                        if w.get('reps') is not None and w.get('date') is not None:
+                            filtered.append(w)
 
-        
+                if not filtered:
+                    st.info("📌 No logged sets to display yet.")
+                else:
+                    # Get routines for grouping
+                    routines = db.get_user_routines(st.session_state['username'])
+                    routine_map = {r['id']: r for r in routines}
+
+                    # Group: Routine → Date → Exercise → Sets
+                    grouped = defaultdict(lambda: defaultdict(lambda: defaultdict(list)))
+                    
+                    for w in filtered:
+                        routine_id = w.get('routine_id')
+                        # robustly parse date to YYYY-MM-DD
+                        date_val = w.get('date')
+                        date_str = str(date_val)[:10] if date_val else "Unknown"
+                        exercise_name = w.get('exercise_name', 'Unknown')
+
+                        if routine_id:
+                            grouped[routine_id][date_str][exercise_name].append(w)
+
+                    # ===== DISPLAY GROUPED VIEW =====
+                    if grouped:
+                        for routine_id, date_dict in grouped.items():
+                            routine = routine_map.get(routine_id, {})
+                            routine_header = f"🏋️ {routine.get('routine_name', 'Unknown')} ({routine.get('day_name', '?')})"
+                            
+                            with st.expander(routine_header, expanded=True):
+                                # Sort dates descending (newest first), keeping valid date strings at top
+                                def _sort_key(d):
+                                    try:
+                                        return (1, datetime.fromisoformat(d))
+                                    except Exception:
+                                        return (0, d)
+                                for workout_date in sorted(date_dict.keys(), reverse=True):
+                                    exercise_dict = date_dict[workout_date]
+                                    
+                                    with st.expander(f"📅 {workout_date}"):
+                                        # Show each exercise on this date
+                                        for exercise_name, sets in exercise_dict.items():
+                                            st.markdown(f"**{exercise_name}**")
+                                            
+                                            for idx, s in enumerate(sets, 1):
+                                                # Create columns with delete button
+                                                col1, col2, col3, col4, col5, col6 = st.columns([1.5, 1, 1.2, 1, 1.5, 0.8])
+                                                
+                                                with col1:
+                                                    st.write(f"Set {idx}")
+                                                with col2:
+                                                    st.write(f"Reps: {s.get('reps', '-')}")
+                                                with col3:
+                                                    weight_val = s.get('weight', None)
+                                                    st.write(f"Weight: {weight_val} kg" if weight_val else "No weight")
+                                                with col4:
+                                                    st.write(f"Effort: {s.get('effort_level', 'N/A')}")
+                                                with col5:
+                                                    notes_val = s.get('notes', '')
+                                                    if notes_val:
+                                                        notes_disp = notes_val[:20] + '...' if len(notes_val) > 20 else notes_val
+                                                    else:
+                                                        notes_disp = '-'
+                                                    st.write(f"Notes: {notes_disp}")
+                                                with col6:
+                                                    # Delete button for each set
+                                                    set_id = s.get('id')
+                                                    if set_id is not None and st.button(
+                                                        "🗑️",
+                                                        key=f"delete_{set_id}",
+                                                        help="Delete this set"
+                                                    ):
+                                                        if db.delete_workout(set_id):
+                                                            st.success("✅ Set deleted!")
+                                                            st.rerun()
+                                                        else:
+                                                            st.error("❌ Failed to delete set")
+                                            
+                                            st.divider()
+                    else:
+                        st.info("📌 No grouped data available")
+
         # ===== PAGE 3: STATISTICS =====
         elif page == "Statistics":
             st.header("📈 Statistics & Progress")
             
-            all_workouts = db.get_user_workouts(st.session_state['username'], limit=1000)
+            all_workouts_raw = db.get_user_workouts(st.session_state['username'], limit=1000)
             
-            if not all_workouts:
+            if not all_workouts_raw:
                 st.info("📌 Log some workouts to see your statistics!")
             else:
-                df = pd.DataFrame(all_workouts)
-                
-                col1, col2, col3, col4 = st.columns(4)
-                
-                with col1:
-                    st.metric("Total Workouts", len(all_workouts))
-                with col2:
-                    st.metric("Total Sets", df['sets'].sum())
-                with col3:
-                    st.metric("Total Reps", (df['sets'] * df['reps']).sum())
-                with col4:
-                    total_volume = (df['sets'] * df['reps'] * df['weight']).sum()
-                    st.metric("Total Volume (kg)", f"{total_volume:,.0f}")
-                
-                st.divider()
-                
-                st.subheader("Workouts by Muscle Group")
-                st.bar_chart(df['target_muscle'].value_counts())
-                
-                st.divider()
-                
-                if 'effort_level' in df.columns:
-                    st.subheader("Effort Level Distribution")
-                    effort_counts = df['effort_level'].value_counts()
-                    st.bar_chart(effort_counts)
+                # Use same filtering logic as History for consistency
+                filtered = []
+                for w in all_workouts_raw:
+                    if w is None:
+                        continue
+                    if 'kind' in w:
+                        if w.get('kind') == 'set':
+                            filtered.append(w)
+                    else:
+                        if w.get('reps') is not None and w.get('date') is not None:
+                            filtered.append(w)
+
+                if not filtered:
+                    st.info("📌 No logged sets yet to compute statistics.")
+                else:
+                    df = pd.DataFrame(filtered)
+
+                    # Defensive fill for missing numeric columns
+                    for col in ['sets', 'reps', 'weight']:
+                        if col in df.columns:
+                            df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
+                        else:
+                            df[col] = 0
+
+                    col1, col2, col3, col4 = st.columns(4)
+                    
+                    with col1:
+                        st.metric("Total Workouts", len(filtered))
+                    with col2:
+                        st.metric("Total Sets", int(df['sets'].sum()))
+                    with col3:
+                        st.metric("Total Reps", int((df['sets'] * df['reps']).sum()))
+                    with col4:
+                        total_volume = (df['sets'] * df['reps'] * df['weight']).sum()
+                        st.metric("Total Volume (kg)", f"{total_volume:,.0f}")
+                    
+                    st.divider()
+                    
+                    st.subheader("Workouts by Muscle Group")
+                    if 'target_muscle' in df.columns and not df['target_muscle'].isna().all():
+                        st.bar_chart(df['target_muscle'].value_counts())
+                    else:
+                        st.info("No muscle group data available.")
+                    
+                    st.divider()
+                    
+                    if 'effort_level' in df.columns and not df['effort_level'].isna().all():
+                        st.subheader("Effort Level Distribution")
+                        effort_counts = df['effort_level'].value_counts()
+                        st.bar_chart(effort_counts)
+                    else:
+                        st.info("No effort level data available.")
         
         st.sidebar.divider()
         st.sidebar.caption("💪 Stay Strong!")
