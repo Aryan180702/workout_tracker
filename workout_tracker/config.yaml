@@ -1,0 +1,21 @@
+cookie:
+  expiry_days: 30
+  key: abc12345678
+  name: workout_tracker_cookie
+credentials:
+  usernames:
+    admin:
+      email: admin@example.com
+      name: admin
+      password: $2b$12$hCmJSLpF46V8dv4ecskyEe2H6Da6Swoaa4D4CB1cP.oIdw25W60YO
+    aryan123:
+      email: aryan@123
+      name: Aryan123
+      password: '1234567'
+    test:
+      email: raunakaryan12345@gmail.com
+      logged_in: false
+      name: Test
+      password: $2b$12$i1RiiEjzSWDsWeSw6xnAzeMgrpqk8r3q4PLlCag/XSIzK/.7RRxXa
+pre-authorized:
+  emails: []
