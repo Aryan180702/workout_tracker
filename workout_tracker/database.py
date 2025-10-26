@@ -171,9 +171,9 @@ class WorkoutDatabase:
         notes: str = "",
         effort_level: str = "Medium",
         routine_id: int = None,
-        routine_exercise_id: int = None
+        routine_exercise_id: int = None,   # <-- add this parameter
     ) -> bool:
-        """Add a new workout entry; stores routine_exercise_id to avoid duplication in history."""
+        """Add a new workout entry with routine_id and routine_exercise_id"""
         try:
             data = {
                 "user_id": user_id,
@@ -186,13 +186,15 @@ class WorkoutDatabase:
                 "notes": notes,
                 "effort_level": effort_level,
                 "routine_id": routine_id,
-                "routine_exercise_id": routine_exercise_id
             }
-            _ = self.supabase.table("workouts").insert(data).execute()
+            if routine_exercise_id is not None:
+                data["routine_exercise_id"] = routine_exercise_id
+            response = self.supabase.table("workouts").insert(data).execute()
             return True
         except Exception as e:
             st.error(f"Error adding workout: {e}")
             return False
+
 
     def get_workouts_by_muscle(self, user_id: str, muscle: str) -> List[Dict]:
         """Get workouts filtered by target muscle"""
