@@ -6,6 +6,9 @@ import streamlit as st
 from datetime import datetime
 from typing import List, Dict, Optional
 
+def _norm_name(s: str) -> str:
+    return " ".join((s or "").strip().split()).lower()
+
 class WorkoutDatabase:
     """Handle all database operations for the workout tracker"""
 
@@ -19,14 +22,13 @@ class WorkoutDatabase:
             st.error(f"Failed to connect to database: {e}")
             self.supabase = None
 
-    # ===== ROUTINES FUNCTIONS =====
-
+    # ===== ROUTINES =====
     def create_routine(self, user_id: str, routine_name: str, day_name: str, description: str = "") -> Optional[int]:
-        """Create a new routine and return its id"""
+        """Create a new routine and return its id (routine_name stored normalized)"""
         try:
             data = {
                 "user_id": user_id,
-                "routine_name": routine_name,
+                "routine_name": _norm_name(routine_name),
                 "day_name": day_name,
                 "description": description,
                 "created_at": datetime.now().isoformat()
@@ -67,14 +69,26 @@ class WorkoutDatabase:
         order_num: int = 1
     ) -> Optional[int]:
         """
-        Add exercise to a routine.
-        NOTE: We intentionally DO NOT insert reps/weight/notes/effort_level into workouts here.
+        Add an exercise template to a routine.
+        Stores exercise_name normalized (lower-case).
         Returns inserted routine_exercise id.
         """
         try:
+            ex_key = _norm_name(exercise_name)
+
+            # De-duplicate (case-insensitive) within the same routine
+            existing = self.supabase.table("routine_exercises")\
+                .select("id")\
+                .eq("routine_id", routine_id)\
+                .ilike("exercise_name", ex_key)\
+                .execute()
+            if existing.data:
+                # Already exists, return its id
+                return existing.data[0]["id"]
+
             data = {
                 "routine_id": routine_id,
-                "exercise_name": exercise_name,
+                "exercise_name": ex_key,  # normalized storage
                 "target_muscle": target_muscle,
                 "sets": sets,
                 "order_num": order_num,
@@ -82,7 +96,6 @@ class WorkoutDatabase:
             }
             response = self.supabase.table("routine_exercises").insert(data).execute()
             if response.data:
-                # return the id so caller can use it immediately if needed
                 return response.data[0].get("id")
             return None
         except Exception as e:
@@ -103,7 +116,7 @@ class WorkoutDatabase:
             return []
 
     def delete_routine(self, routine_id: int) -> bool:
-        """Delete a routine (cascades to exercises if FK is set with ON DELETE CASCADE)"""
+        """Delete a routine (cascades to exercises if FK has ON DELETE CASCADE)"""
         try:
             _ = self.supabase.table("routines").delete().eq("id", routine_id).execute()
             return True
@@ -125,7 +138,7 @@ class WorkoutDatabase:
             created_at TIMESTAMP DEFAULT NOW()
         );
 
-        -- Routine exercises (templates)
+        -- Routine exercises
         CREATE TABLE IF NOT EXISTS routine_exercises (
             id BIGSERIAL PRIMARY KEY,
             routine_id BIGINT NOT NULL REFERENCES routines(id) ON DELETE CASCADE,
@@ -135,6 +148,10 @@ class WorkoutDatabase:
             order_num INTEGER DEFAULT 1,
             created_at TIMESTAMP DEFAULT NOW()
         );
+
+        -- Prevent duplicates within a routine (case-insensitive)
+        CREATE UNIQUE INDEX IF NOT EXISTS uniq_routine_exercise_name
+          ON routine_exercises (routine_id, lower(exercise_name));
 
         -- Workouts (per-set logs)
         CREATE TABLE IF NOT EXISTS workouts (
@@ -159,7 +176,6 @@ class WorkoutDatabase:
         pass
 
     # ===== WORKOUTS =====
-
     def add_workout(
         self,
         user_id: str,
@@ -171,14 +187,14 @@ class WorkoutDatabase:
         notes: str = "",
         effort_level: str = "Medium",
         routine_id: int = None,
-        routine_exercise_id: int = None,   # <-- add this parameter
+        routine_exercise_id: int = None
     ) -> bool:
-        """Add a new workout entry with routine_id and routine_exercise_id"""
+        """Add a new workout entry; stores routine_exercise_id and normalized exercise_name."""
         try:
             data = {
                 "user_id": user_id,
                 "date": datetime.now().isoformat(),
-                "exercise_name": exercise_name,
+                "exercise_name": _norm_name(exercise_name),
                 "target_muscle": target_muscle,
                 "sets": sets,
                 "reps": reps,
@@ -186,18 +202,15 @@ class WorkoutDatabase:
                 "notes": notes,
                 "effort_level": effort_level,
                 "routine_id": routine_id,
+                "routine_exercise_id": routine_exercise_id
             }
-            if routine_exercise_id is not None:
-                data["routine_exercise_id"] = routine_exercise_id
-            response = self.supabase.table("workouts").insert(data).execute()
+            _ = self.supabase.table("workouts").insert(data).execute()
             return True
         except Exception as e:
             st.error(f"Error adding workout: {e}")
             return False
 
-
     def get_workouts_by_muscle(self, user_id: str, muscle: str) -> List[Dict]:
-        """Get workouts filtered by target muscle"""
         try:
             response = self.supabase.table("workouts")\
                 .select("*")\
@@ -211,12 +224,11 @@ class WorkoutDatabase:
             return []
 
     def get_workouts_by_exercise(self, user_id: str, exercise: str) -> List[Dict]:
-        """Get workouts filtered by exercise name"""
         try:
             response = self.supabase.table("workouts")\
                 .select("*")\
                 .eq("user_id", user_id)\
-                .eq("exercise_name", exercise)\
+                .eq("exercise_name", _norm_name(exercise))\
                 .order("date", desc=True)\
                 .execute()
             return response.data or []
@@ -225,8 +237,9 @@ class WorkoutDatabase:
             return []
 
     def update_workout(self, workout_id: int, updates: Dict) -> bool:
-        """Update an existing workout"""
         try:
+            if "exercise_name" in updates:
+                updates["exercise_name"] = _norm_name(updates["exercise_name"])
             _ = self.supabase.table("workouts").update(updates).eq("id", workout_id).execute()
             return True
         except Exception as e:
@@ -234,7 +247,6 @@ class WorkoutDatabase:
             return False
 
     def delete_workout(self, workout_id: int) -> bool:
-        """Delete a workout entry"""
         try:
             _ = self.supabase.table("workouts").delete().eq("id", workout_id).execute()
             return True
@@ -243,7 +255,6 @@ class WorkoutDatabase:
             return False
 
     def get_exercise_stats(self, user_id: str, exercise_name: str) -> Dict:
-        """Get statistics for a specific exercise"""
         try:
             workouts = self.get_workouts_by_exercise(user_id, exercise_name)
             if not workouts:
@@ -263,10 +274,7 @@ class WorkoutDatabase:
             return {}
 
     def get_user_workouts(self, user_id: str, limit: int = 100) -> list:
-        """
-        Returns a list of all workouts for this user, most recent first,
-        including routine_id and routine_exercise_id.
-        """
+        """Return all workouts (most recent first)."""
         try:
             response = self.supabase.table("workouts").select("*")\
                 .eq("user_id", user_id)\
