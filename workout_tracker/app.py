@@ -25,7 +25,7 @@ st.set_page_config(
 def load_config():
     """Load authentication config from YAML file"""
     try:
-        with open('workout_tracker/config.yaml') as file:
+        with open('config.yaml') as file:
             config = yaml.load(file, Loader=SafeLoader)
         return config
     except FileNotFoundError:
@@ -38,7 +38,7 @@ def load_config():
 def save_config(config):
     """Save updated config back to YAML file"""
     try:
-        with open('config.yaml', 'w') as file:
+        with open('workout_tracker/config.yaml', 'w') as file:
             yaml.dump(config, file)
     except Exception as e:
         st.error(f"❌ Error saving config: {e}")
@@ -215,7 +215,8 @@ with tab1:
                     for idx, ex in enumerate(exercises):  # ← Add enumerate index
                         st.markdown(f"### {ex['exercise_name']} ({ex['target_muscle']})")
                         st.caption(f"Target: {ex['sets']} sets")
-                        
+                        default_reps = 10
+                        default_weight = 0.0
                         # Use a unique key with both exercise ID and enumerate index
                         actual_sets = st.number_input(
                             "Number of Sets Completed",
@@ -232,24 +233,25 @@ with tab1:
                             col1, col2, col3 = st.columns(3)
                             
                             with col1:
+
                                 reps = st.number_input(
-                                    f"Reps",
+                                    "Reps",
                                     min_value=1,
                                     max_value=100,
-                                    value=ex.get('reps') or 10,
-                                    key=f"reps_{selected_routine['id']}_{ex['exercise_name'].replace(' ', '_')}_set_{set_num}_idx_{idx}"
+                                    value=default_reps,
+                                    key=f"reps_{selected_routine['id']}_{ex['exercise_name'].replace(' ', '_')}_set_{set_num}_uid_{idx}_{set_num}_{datetime.now().timestamp()}"
                                 )
                             
                             with col2:
                                 weight = st.number_input(
-                                    f"Weight (kg)",
+                                    "Weight (kg)",
                                     min_value=0.0,
                                     max_value=500.0,
-                                    value=float(ex.get('weight') or 0),
+                                    value=default_weight,
                                     step=2.5,
-                                    key=f"weight_{selected_routine['id']}_{ex['exercise_name'].replace(' ', '_')}_set_{set_num}_idx_{idx}"
+                                    key=f"weight_{selected_routine['id']}_{ex['exercise_name'].replace(' ', '_')}_set_{set_num}_uid_{idx}_{set_num}_{datetime.now().timestamp()}"
                                 )
-                            
+                                                            
                             with col3:
                                 effort = st.selectbox(
                                     f"Effort Level",
