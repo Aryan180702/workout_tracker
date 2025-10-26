@@ -271,6 +271,8 @@ with tab1:
                     # ===== LOG ALL BUTTON =====
                     if st.button("💾 Log This Workout", type="primary", use_container_width=True):
                         total_sets_logged = 0
+                         if not details['sets']:
+                             continue
                         for _, details in all_set_details.items():
                             for set_data in details['sets']:
                                 ok = db.add_workout(
