@@ -31,7 +31,7 @@ class WorkoutDatabase:
                 "routine_name": _norm_name(routine_name),
                 "day_name": day_name,
                 "description": description,
-                "created_at": datetime.now().isoformat()
+                # removed created_at to avoid PGRST204 if column doesn't exist
             }
             response = self.supabase.table("routines").insert(data).execute()
             if isinstance(response.data, list) and len(response.data) > 0:
@@ -76,14 +76,13 @@ class WorkoutDatabase:
         try:
             ex_key = _norm_name(exercise_name)
 
-            # De-duplicate (case-insensitive) within the same routine
+            # Since we normalize names, equality is enough (no ILIKE wildcards needed)
             existing = self.supabase.table("routine_exercises")\
                 .select("id")\
                 .eq("routine_id", routine_id)\
-                .ilike("exercise_name", ex_key)\
+                .eq("exercise_name", ex_key)\
                 .execute()
             if existing.data:
-                # Already exists, return its id
                 return existing.data[0]["id"]
 
             data = {
@@ -92,7 +91,7 @@ class WorkoutDatabase:
                 "target_muscle": target_muscle,
                 "sets": sets,
                 "order_num": order_num,
-                "created_at": datetime.now().isoformat()
+                # removed created_at to avoid PGRST204 if column doesn't exist
             }
             response = self.supabase.table("routine_exercises").insert(data).execute()
             if response.data:
@@ -134,8 +133,8 @@ class WorkoutDatabase:
             user_id TEXT NOT NULL,
             routine_name TEXT NOT NULL,
             day_name TEXT NOT NULL,
-            description TEXT,
-            created_at TIMESTAMP DEFAULT NOW()
+            description TEXT
+            -- created_at TIMESTAMP DEFAULT NOW()  -- optional
         );
 
         -- Routine exercises
@@ -145,8 +144,8 @@ class WorkoutDatabase:
             exercise_name TEXT NOT NULL,
             target_muscle TEXT NOT NULL,
             sets INTEGER NOT NULL,
-            order_num INTEGER DEFAULT 1,
-            created_at TIMESTAMP DEFAULT NOW()
+            order_num INTEGER DEFAULT 1
+            -- created_at TIMESTAMP DEFAULT NOW()  -- optional
         );
 
         -- Prevent duplicates within a routine (case-insensitive)
