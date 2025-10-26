@@ -25,7 +25,7 @@ st.set_page_config(
 def load_config():
     """Load authentication config from YAML file"""
     try:
-        with open('config.yaml') as file:
+        with open('workout_tracker/config.yaml') as file:
             config = yaml.load(file, Loader=SafeLoader)
         return config
     except FileNotFoundError:
